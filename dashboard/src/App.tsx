@@ -244,6 +244,122 @@ function describeRoute(route: RouteDefinition) {
   return 'Deletes a record by id.'
 }
 
+function DocsPanel({ routes, stats, addToast }: { routes: RouteDefinition[]; stats: StatsResponse; addToast: (kind: Toast['kind'], title: string, message: string) => void }) {
+  const [selectedKey, setSelectedKey] = useState('')
+  const [body, setBody] = useState('{\n  \n}')
+  const [headers, setHeaders] = useState('{\n  "Content-Type": "application/json"\n}')
+  const [pathId, setPathId] = useState('')
+  const [query, setQuery] = useState('')
+  const [response, setResponse] = useState('Send a request to see the response here.')
+  const selected = routes.find((route) => `${route.method} ${route.path}` === selectedKey) ?? routes[0]
+  const routeKey = selected ? `${selected.method} ${selected.path}` : ''
+  const needsBody = selected ? ['POST', 'PUT', 'PATCH'].includes(selected.method) : false
+  const needsId = selected?.path.includes(':id') ?? false
+
+  useEffect(() => {
+    if (!selectedKey && routes[0]) setSelectedKey(`${routes[0].method} ${routes[0].path}`)
+  }, [routes, selectedKey])
+
+  async function copyOpenApi() {
+    const spec = await fetch('/api/_export/openapi.json').then((res) => res.json())
+    await navigator.clipboard.writeText(JSON.stringify(spec, null, 2))
+    addToast('info', 'OpenAPI copied', 'Spec copied as JSON')
+  }
+
+  async function sendRequest() {
+    if (!selected) return
+    let path = selected.path
+    if (needsId) {
+      if (!pathId.trim()) {
+        addToast('error', 'Missing id', 'Enter a record id for this route')
+        return
+      }
+      path = path.replace(':id', encodeURIComponent(pathId.trim()))
+    }
+    if (query.trim()) path += path.includes('?') ? `&${query.trim()}` : `?${query.trim()}`
+
+    let parsedHeaders: Record<string, string> = {}
+    try {
+      parsedHeaders = headers.trim() ? JSON.parse(headers) : {}
+    } catch (error) {
+      addToast('error', 'Invalid headers JSON', error instanceof Error ? error.message : 'Could not parse headers')
+      return
+    }
+
+    const init: RequestInit = { method: selected.method, headers: parsedHeaders }
+    if (needsBody) {
+      try {
+        init.body = JSON.stringify(JSON.parse(body || '{}'))
+      } catch (error) {
+        addToast('error', 'Invalid body JSON', error instanceof Error ? error.message : 'Could not parse body')
+        return
+      }
+    }
+
+    const started = performance.now()
+    const result = await fetch(path, init)
+    const text = await result.text()
+    const ms = Math.round(performance.now() - started)
+    let pretty = text
+    try {
+      pretty = JSON.stringify(JSON.parse(text), null, 2)
+    } catch {
+      // Plain text responses stay plain.
+    }
+    setResponse(`${result.status} ${result.statusText} ${ms}ms\n\n${pretty}`)
+  }
+
+  return (
+    <section className="panel docs-panel">
+      <PanelHeader title="Docs" subtitle="Browse generated API docs and test routes from the dashboard" action={<button className="ghost-button" type="button" onClick={copyOpenApi}>Copy OpenAPI</button>} />
+      {routes.length === 0 ? <EmptyState title="No routes documented" text="Load a schema to generate API docs." /> : (
+        <div className="docs-grid">
+          <div className="docs-list">
+            {routes.map((route) => (
+              <button className={`docs-route ${routeKey === `${route.method} ${route.path}` ? 'selected' : ''}`} key={`${route.method}-${route.path}`} type="button" onClick={() => setSelectedKey(`${route.method} ${route.path}`)}>
+                <span className={`method-badge method-${route.method}`}>{route.method}</span>
+                <code>{route.path}</code>
+              </button>
+            ))}
+          </div>
+          <div className="docs-detail">
+            {selected && (
+              <>
+                <article className="docs-card">
+                  <div className="route-header">
+                    <span className={`method-badge method-${selected.method}`}>{selected.method}</span>
+                    <code className="route-path">{selected.path}</code>
+                  </div>
+                  <p className="route-desc">{describeRoute(selected)}</p>
+                  <dl className="doc-meta">
+                    <div><dt>Model</dt><dd>{selected.model}</dd></div>
+                    <div><dt>Records</dt><dd>{stats.models[selected.model] ?? 0}</dd></div>
+                    <div><dt>Base URL</dt><dd>http://localhost:{stats.port}</dd></div>
+                  </dl>
+                </article>
+                <article className="docs-card composer">
+                  <h2>Request Composer</h2>
+                  <div className="composer-row">
+                    {needsId && <label>id<input value={pathId} onChange={(event) => setPathId(event.target.value)} placeholder="record id" /></label>}
+                    <label>query<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="_limit=5&_sort=name" /></label>
+                  </div>
+                  <label>headers<textarea value={headers} onChange={(event) => setHeaders(event.target.value)} spellCheck={false} /></label>
+                  {needsBody && <label>body<textarea value={body} onChange={(event) => setBody(event.target.value)} spellCheck={false} /></label>}
+                  <div className="composer-actions">
+                    <button className="btn-reload" type="button" onClick={sendRequest}>Send Request</button>
+                    <button className="ghost-button" type="button" onClick={() => navigator.clipboard.writeText(buildCurl(selected.method, selected.path, stats.port))}>Copy curl</button>
+                  </div>
+                  <pre className="response-box">{response}</pre>
+                </article>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function LiveLogPanel({ logs, setLogs, stats }: { logs: LogEvent[]; setLogs: React.Dispatch<React.SetStateAction<LogEvent[]>>; stats: StatsResponse }) {
   const [query, setQuery] = useState('')
   const [method, setMethod] = useState('ALL')
