@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { LogEvent, ResetResponse, RouteDefinition, StatsResponse } from '../../shared/types'
+import type { LogEvent, MutationHistoryEntry, RequestSnapshot, ResetResponse, RouteDefinition, RuntimeConfig, StatsResponse } from '../../shared/types'
 import './App.css'
 
-type Panel = 'routes' | 'logs' | 'schema' | 'explorer'
+type Panel = 'routes' | 'logs' | 'schema' | 'explorer' | 'control'
 type Toast = { id: number; kind: 'success' | 'error' | 'info'; title: string; message: string }
 
 const methods = ['ALL', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE']
@@ -112,6 +112,7 @@ function App() {
         {panel === 'logs' && <LiveLogPanel logs={logs} setLogs={setLogs} stats={stats} />}
         {panel === 'schema' && <SchemaPanel schemaText={schemaText} setSchemaText={setSchemaText} onReload={reloadSchema} addToast={addToast} />}
         {panel === 'explorer' && <ExplorerPanel stats={stats} refreshKey={refreshKey} addToast={addToast} />}
+        {panel === 'control' && <ControlPanel stats={stats} schemaText={schemaText} addToast={addToast} />}
       </main>
       <div className="toast-container" aria-live="polite">
         {toasts.map((toast) => (
@@ -165,7 +166,7 @@ function Topbar({ stats, onReset, addToast }: { stats: StatsResponse; onReset: (
 }
 
 function Sidebar({ panel, setPanel, stats }: { panel: Panel; setPanel: (panel: Panel) => void; stats: StatsResponse }) {
-  const nav: Array<[Panel, string, string]> = [['routes', 'Routes', 'GRID'], ['logs', 'Live Log', 'LOG'], ['schema', 'Schema', '{}'], ['explorer', 'Explorer', 'TABLE']]
+  const nav: Array<[Panel, string, string]> = [['routes', 'Routes', 'GRID'], ['logs', 'Live Log', 'LOG'], ['schema', 'Schema', '{}'], ['explorer', 'Explorer', 'TABLE'], ['control', 'Control', 'CTRL']]
   return (
     <aside className="sidebar">
       <nav className="nav-list">
@@ -373,6 +374,168 @@ function ExplorerPanel({ stats, refreshKey, addToast }: { stats: StatsResponse; 
           </table>
         </div>
       )}
+    </section>
+  )
+}
+
+function ControlPanel({ stats, schemaText, addToast }: { stats: StatsResponse; schemaText: string; addToast: (kind: Toast['kind'], title: string, message: string) => void }) {
+  const [config, setConfig] = useState<RuntimeConfig | null>(null)
+  const [snapshotName, setSnapshotName] = useState('baseline')
+  const [snapshots, setSnapshots] = useState<Array<{ name: string; models: Record<string, number> }>>([])
+  const [history, setHistory] = useState<MutationHistoryEntry[]>([])
+  const [requests, setRequests] = useState<RequestSnapshot[]>([])
+  const [exportText, setExportText] = useState('')
+  const [diff, setDiff] = useState('')
+
+  const schema = useMemo(() => {
+    try {
+      return JSON.parse(schemaText) as Record<string, Record<string, { type: string; isRelation?: boolean; relationModel?: string }>>
+    } catch {
+      return {}
+    }
+  }, [schemaText])
+
+  const relationships = useMemo(() => Object.entries(schema).flatMap(([model, fields]) =>
+    Object.entries(fields)
+      .filter(([, field]) => field.isRelation || field.relationModel)
+      .map(([fieldName, field]) => ({ from: model, to: field.relationModel || fieldName.replace(/(?:Id|_id)$/, ''), field: fieldName })),
+  ), [schema])
+
+  const loadControlData = useCallback(async () => {
+    const [configResponse, snapshotResponse, historyResponse, requestResponse] = await Promise.all([
+      fetch('/api/_config'),
+      fetch('/api/_snapshots'),
+      fetch('/api/_history'),
+      fetch('/api/_requests'),
+    ])
+    setConfig(await configResponse.json())
+    setSnapshots(await snapshotResponse.json())
+    setHistory(await historyResponse.json())
+    setRequests(await requestResponse.json())
+  }, [])
+
+  useEffect(() => {
+    loadControlData().catch(() => addToast('error', 'Control data failed', 'Could not load advanced tooling data'))
+  }, [addToast, loadControlData])
+
+  async function saveConfig(next: Partial<RuntimeConfig>) {
+    const response = await fetch('/api/_config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(next),
+    })
+    setConfig(await response.json())
+    addToast('success', 'Config updated', 'Simulation settings are active')
+  }
+
+  async function saveSnapshot() {
+    const response = await fetch(`/api/_snapshots/${encodeURIComponent(snapshotName)}`, { method: 'POST' })
+    if (!response.ok) throw new Error('Snapshot failed')
+    await loadControlData()
+    addToast('success', 'Snapshot saved', snapshotName)
+  }
+
+  async function restoreSnapshot(name: string) {
+    const response = await fetch(`/api/_snapshots/${encodeURIComponent(name)}/restore`, { method: 'POST' })
+    if (!response.ok) throw new Error('Restore failed')
+    await loadControlData()
+    addToast('success', 'Snapshot restored', name)
+  }
+
+  async function resetModel(model: string) {
+    const response = await fetch(`/api/reset/${model}`, { method: 'POST' })
+    if (!response.ok) throw new Error('Model reset failed')
+    addToast('success', 'Model reset', model)
+  }
+
+  async function loadExport(kind: 'types' | 'postman' | 'msw') {
+    const endpoint = kind === 'types' ? '/api/_types' : kind === 'postman' ? '/api/_export/postman' : '/api/_export/msw'
+    const response = await fetch(endpoint)
+    const text = kind === 'postman' ? JSON.stringify(await response.json(), null, 2) : await response.text()
+    setExportText(text)
+  }
+
+  async function copyExport() {
+    await navigator.clipboard.writeText(exportText)
+    addToast('info', 'Export copied', 'Ready for your project')
+  }
+
+  function compareEditorToServer() {
+    const fieldSummary = Object.entries(schema).map(([model, fields]) => `${model}: ${Object.keys(fields).join(', ')}`).join('\n')
+    setDiff(fieldSummary || 'No valid schema in editor')
+  }
+
+  return (
+    <section className="panel control-panel">
+      <PanelHeader title="Control" subtitle="Simulation, snapshots, exports, and debugging tools" action={<button className="ghost-button" type="button" onClick={loadControlData}>Refresh</button>} />
+      <div className="control-grid">
+        <article className="tool-panel">
+          <h2>Realism</h2>
+          <label>Global delay <input type="number" value={config?.globalDelayMs ?? 0} onChange={(event) => setConfig((current) => current && { ...current, globalDelayMs: Number(event.target.value) })} /></label>
+          <label>Chaos rate <input type="number" min="0" max="1" step="0.01" value={config?.chaosRate ?? 0} onChange={(event) => setConfig((current) => current && { ...current, chaosRate: Number(event.target.value) })} /></label>
+          <label>Rate limit/min <input type="number" value={config?.rateLimitPerMinute ?? ''} onChange={(event) => setConfig((current) => current && { ...current, rateLimitPerMinute: event.target.value ? Number(event.target.value) : null })} /></label>
+          <label className="check-row"><input type="checkbox" checked={config?.authRequired ?? false} onChange={(event) => setConfig((current) => current && { ...current, authRequired: event.target.checked })} /> Require bearer auth</label>
+          <code className="token-line">Bearer {config?.authToken}</code>
+          <button className="btn-reload" type="button" disabled={!config} onClick={() => config && saveConfig(config)}>Apply Config</button>
+        </article>
+
+        <article className="tool-panel">
+          <h2>Snapshots</h2>
+          <div className="inline-controls">
+            <input value={snapshotName} onChange={(event) => setSnapshotName(event.target.value)} />
+            <button className="ghost-button" type="button" onClick={saveSnapshot}>Save</button>
+          </div>
+          <div className="mini-list">
+            {snapshots.length === 0 ? <span className="muted">No snapshots saved</span> : snapshots.map((snapshot) => (
+              <button key={snapshot.name} type="button" onClick={() => restoreSnapshot(snapshot.name)}>
+                <strong>{snapshot.name}</strong><span>{Object.values(snapshot.models).reduce((sum, count) => sum + count, 0)} records</span>
+              </button>
+            ))}
+          </div>
+          <h3>Per-model reset</h3>
+          <div className="chip-row">{Object.keys(stats.models).map((model) => <button className="ghost-button" key={model} type="button" onClick={() => resetModel(model)}>{model}</button>)}</div>
+        </article>
+
+        <article className="tool-panel wide">
+          <h2>Exports</h2>
+          <div className="chip-row">
+            <button className="ghost-button" type="button" onClick={() => loadExport('types')}>TypeScript</button>
+            <button className="ghost-button" type="button" onClick={() => loadExport('postman')}>Postman</button>
+            <button className="ghost-button" type="button" onClick={() => loadExport('msw')}>MSW</button>
+            <button className="ghost-button" type="button" disabled={!exportText} onClick={copyExport}>Copy</button>
+          </div>
+          <pre className="export-box">{exportText || 'Choose an export to preview it here.'}</pre>
+        </article>
+
+        <article className="tool-panel">
+          <h2>Relationship Graph</h2>
+          <div className="graph-list">
+            {relationships.length === 0 ? <span className="muted">No relations detected</span> : relationships.map((edge) => (
+              <div key={`${edge.from}-${edge.field}`}><strong>{edge.from}</strong><span>{edge.field}</span><strong>{edge.to}</strong></div>
+            ))}
+          </div>
+          <button className="ghost-button" type="button" onClick={compareEditorToServer}>Summarize Schema</button>
+          <pre className="diff-box">{diff || 'Schema summary appears here.'}</pre>
+        </article>
+
+        <article className="tool-panel">
+          <h2>Mutation History</h2>
+          <div className="timeline">
+            {history.length === 0 ? <span className="muted">No mutations yet</span> : history.slice(0, 12).map((entry) => (
+              <div key={entry.id}><span className={`method-badge method-${entry.method}`}>{entry.method}</span><code>{entry.model}/{entry.recordId.slice(0, 8)}</code></div>
+            ))}
+          </div>
+        </article>
+
+        <article className="tool-panel">
+          <h2>Request Inspector</h2>
+          <div className="timeline">
+            {requests.length === 0 ? <span className="muted">No requests captured</span> : requests.slice(0, 12).map((request) => (
+              <div key={`${request.timestamp}-${request.path}`}><span className="method-badge method-GET">{request.method}</span><code>{request.path}</code></div>
+            ))}
+          </div>
+        </article>
+      </div>
     </section>
   )
 }
