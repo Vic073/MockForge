@@ -19,6 +19,7 @@ MockForge turns a simple JSON schema into a local API that frontend, mobile, QA,
 - Fixture imports for real sample data
 - Deterministic seeding with `--seed-key`
 - TypeScript, Postman, and MSW exports
+- OpenAPI export for Swagger and client generators
 - Schema file watch mode enabled by default
 
 ## Quick Start
@@ -161,6 +162,7 @@ GET /api/users/:id/posts
 | `GET` | `/api/_history` | Mutation history with before/after payloads |
 | `GET` | `/api/_requests` | Recent request inspector payloads |
 | `GET` | `/api/_types` | TypeScript interfaces for all models |
+| `GET` | `/api/_export/openapi.json` | OpenAPI 3.1 spec export |
 | `GET` | `/api/_export/postman` | Postman collection export |
 | `GET` | `/api/_export/msw` | MSW handler export |
 
@@ -278,4 +280,3 @@ schema.json          Example schema
 ## Status
 
 MockForge is an early local-first developer tool. It is designed for local development and testing, not production hosting or security-sensitive environments.
-

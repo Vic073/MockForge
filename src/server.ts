@@ -8,6 +8,7 @@ import { faker } from '@faker-js/faker';
 import type { ParsedSchema, SeededStore } from '../shared/types.js';
 import { runtimeConfig, updateRuntimeConfig } from './config/runtimeConfig.js';
 import { generateMswHandlers } from './exporters/msw.js';
+import { generateOpenApi } from './exporters/openapi.js';
 import { generatePostmanCollection } from './exporters/postman.js';
 import { generateTypeScript } from './exporters/typescript.js';
 import { getMutationHistory, getRequestSnapshots } from './history/history.js';
@@ -202,6 +203,7 @@ export async function startServer(schemaPath = 'schema.json', options: ServerOpt
   app.get('/api/_history', (_req, res) => res.json(getMutationHistory()));
   app.get('/api/_requests', (_req, res) => res.json(getRequestSnapshots()));
   app.get('/api/_types', (_req, res) => res.type('text/plain').send(generateTypeScript(currentSchema)));
+  app.get('/api/_export/openapi.json', (_req, res) => res.json(generateOpenApi(currentSchema, createRouteDefinitions(currentSchema), boundPort)));
   app.get('/api/_export/postman', (_req, res) => res.json(generatePostmanCollection(createRouteDefinitions(currentSchema), boundPort)));
   app.get('/api/_export/msw', (_req, res) => res.type('text/plain').send(generateMswHandlers(createRouteDefinitions(currentSchema), boundPort)));
   app.get('/api/_logs/stream', (_req, res) => broadcaster.addClient(res));
