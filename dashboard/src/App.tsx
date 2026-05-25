@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { LogEvent, MutationHistoryEntry, RequestSnapshot, ResetResponse, RouteDefinition, RuntimeConfig, StatsResponse } from '../../shared/types'
 import './App.css'
 
-type Panel = 'routes' | 'logs' | 'schema' | 'explorer' | 'control'
+type Panel = 'routes' | 'docs' | 'logs' | 'schema' | 'explorer' | 'control'
 type Toast = { id: number; kind: 'success' | 'error' | 'info'; title: string; message: string }
 
 const methods = ['ALL', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE']
@@ -109,6 +109,7 @@ function App() {
       <Sidebar panel={panel} setPanel={setPanel} stats={stats} />
       <main className="main">
         {panel === 'routes' && <RoutesPanel routes={routes} stats={stats} addToast={addToast} />}
+        {panel === 'docs' && <DocsPanel routes={routes} stats={stats} addToast={addToast} />}
         {panel === 'logs' && <LiveLogPanel logs={logs} setLogs={setLogs} stats={stats} />}
         {panel === 'schema' && <SchemaPanel schemaText={schemaText} setSchemaText={setSchemaText} onReload={reloadSchema} addToast={addToast} />}
         {panel === 'explorer' && <ExplorerPanel stats={stats} refreshKey={refreshKey} addToast={addToast} />}
@@ -166,7 +167,7 @@ function Topbar({ stats, onReset, addToast }: { stats: StatsResponse; onReset: (
 }
 
 function Sidebar({ panel, setPanel, stats }: { panel: Panel; setPanel: (panel: Panel) => void; stats: StatsResponse }) {
-  const nav: Array<[Panel, string, string]> = [['routes', 'Routes', 'GRID'], ['logs', 'Live Log', 'LOG'], ['schema', 'Schema', '{}'], ['explorer', 'Explorer', 'TABLE'], ['control', 'Control', 'CTRL']]
+  const nav: Array<[Panel, string, string]> = [['routes', 'Routes', 'GRID'], ['docs', 'Docs', 'API'], ['logs', 'Live Log', 'LOG'], ['schema', 'Schema', '{}'], ['explorer', 'Explorer', 'TABLE'], ['control', 'Control', 'CTRL']]
   return (
     <aside className="sidebar">
       <nav className="nav-list">
