@@ -1,0 +1,14 @@
+{
+  "User": {
+    "id": "uuid",
+    "name": "string",
+    "email": "email",
+    "createdAt": "date"
+  },
+  "Post": {
+    "id": "uuid",
+    "title": "string",
+    "body": "text",
+    "userId": "uuid"
+  }
+}
