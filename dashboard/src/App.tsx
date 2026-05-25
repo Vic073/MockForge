@@ -565,10 +565,10 @@ function ControlPanel({ stats, schemaText, addToast }: { stats: StatsResponse; s
     addToast('success', 'Model reset', model)
   }
 
-  async function loadExport(kind: 'types' | 'postman' | 'msw') {
-    const endpoint = kind === 'types' ? '/api/_types' : kind === 'postman' ? '/api/_export/postman' : '/api/_export/msw'
+  async function loadExport(kind: 'openapi' | 'types' | 'postman' | 'msw') {
+    const endpoint = kind === 'openapi' ? '/api/_export/openapi.json' : kind === 'types' ? '/api/_types' : kind === 'postman' ? '/api/_export/postman' : '/api/_export/msw'
     const response = await fetch(endpoint)
-    const text = kind === 'postman' ? JSON.stringify(await response.json(), null, 2) : await response.text()
+    const text = ['openapi', 'postman'].includes(kind) ? JSON.stringify(await response.json(), null, 2) : await response.text()
     setExportText(text)
   }
 
@@ -616,6 +616,7 @@ function ControlPanel({ stats, schemaText, addToast }: { stats: StatsResponse; s
         <article className="tool-panel wide">
           <h2>Exports</h2>
           <div className="chip-row">
+            <button className="ghost-button" type="button" onClick={() => loadExport('openapi')}>OpenAPI</button>
             <button className="ghost-button" type="button" onClick={() => loadExport('types')}>TypeScript</button>
             <button className="ghost-button" type="button" onClick={() => loadExport('postman')}>Postman</button>
             <button className="ghost-button" type="button" onClick={() => loadExport('msw')}>MSW</button>
