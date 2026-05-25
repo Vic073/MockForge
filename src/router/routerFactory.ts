@@ -75,16 +75,6 @@ export function createCrudRouter(): Router {
     res.json(filterAndPaginate(records, req.query));
   });
 
-  router.get('/:model/:id', (req, res) => {
-    const records = store.model(req.params.model);
-    const record = records?.find((item) => item.id === req.params.id);
-    if (!record) {
-      res.status(404).json({ error: `Record '${req.params.id}' not found` });
-      return;
-    }
-    res.json(record);
-  });
-
   router.get('/:model/:id/:childModel', (req, res) => {
     const parent = store.model(req.params.model)?.find((item) => item.id === req.params.id);
     const childRecords = store.model(req.params.childModel);
@@ -98,6 +88,16 @@ export function createCrudRouter(): Router {
       return;
     }
     res.json(filterAndPaginate(childRecords.filter((record) => record[relationField] === parent.id), req.query));
+  });
+
+  router.get('/:model/:id', (req, res) => {
+    const records = store.model(req.params.model);
+    const record = records?.find((item) => item.id === req.params.id);
+    if (!record) {
+      res.status(404).json({ error: `Record '${req.params.id}' not found` });
+      return;
+    }
+    res.json(record);
   });
 
   router.post('/:model', (req, res) => {
