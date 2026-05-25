@@ -251,14 +251,21 @@ function DocsPanel({ routes, stats, addToast }: { routes: RouteDefinition[]; sta
   const [pathId, setPathId] = useState('')
   const [query, setQuery] = useState('')
   const [response, setResponse] = useState('Send a request to see the response here.')
+  const [openApi, setOpenApi] = useState<Record<string, unknown> | null>(null)
   const selected = routes.find((route) => `${route.method} ${route.path}` === selectedKey) ?? routes[0]
   const routeKey = selected ? `${selected.method} ${selected.path}` : ''
   const needsBody = selected ? ['POST', 'PUT', 'PATCH'].includes(selected.method) : false
   const needsId = selected?.path.includes(':id') ?? false
+  const schemas = (openApi?.components as { schemas?: Record<string, { properties?: Record<string, { type?: string; format?: string }> }> } | undefined)?.schemas ?? {}
+  const modelSchema = selected ? Object.entries(schemas).find(([name]) => name.toLowerCase() === selected.model.replace(/s$/, ''))?.[1] : undefined
 
   useEffect(() => {
     if (!selectedKey && routes[0]) setSelectedKey(`${routes[0].method} ${routes[0].path}`)
   }, [routes, selectedKey])
+
+  useEffect(() => {
+    fetch('/api/_export/openapi.json').then((res) => res.json()).then(setOpenApi).catch(() => undefined)
+  }, [routes.length])
 
   async function copyOpenApi() {
     const spec = await fetch('/api/_export/openapi.json').then((res) => res.json())
@@ -336,6 +343,29 @@ function DocsPanel({ routes, stats, addToast }: { routes: RouteDefinition[]; sta
                     <div><dt>Records</dt><dd>{stats.models[selected.model] ?? 0}</dd></div>
                     <div><dt>Base URL</dt><dd>http://localhost:{stats.port}</dd></div>
                   </dl>
+                </article>
+                <article className="docs-card swagger-card">
+                  <h2>Parameters</h2>
+                  <div className="swagger-table">
+                    {needsId && <div><code>id</code><span>path</span><strong>required</strong></div>}
+                    {!needsBody && <div><code>_limit</code><span>query</span><strong>optional</strong></div>}
+                    {!needsBody && <div><code>_search</code><span>query</span><strong>optional</strong></div>}
+                    {!needsBody && <div><code>_sort</code><span>query</span><strong>optional</strong></div>}
+                    {!needsId && needsBody && <span className="muted">No path parameters.</span>}
+                  </div>
+                  <h2>Responses</h2>
+                  <div className="status-row">
+                    <span className="status-badge status-2xx">{selected.method === 'POST' ? '201' : '200'}</span>
+                    <span className="status-badge status-4xx">400</span>
+                    <span className="status-badge status-4xx">404</span>
+                    <span className="status-badge status-5xx">500</span>
+                  </div>
+                  <h2>Schema</h2>
+                  <div className="schema-field-list">
+                    {modelSchema?.properties ? Object.entries(modelSchema.properties).map(([field, detail]) => (
+                      <div key={field}><code>{field}</code><span>{detail.type}{detail.format ? `:${detail.format}` : ''}</span></div>
+                    )) : <span className="muted">Schema details unavailable.</span>}
+                  </div>
                 </article>
                 <article className="docs-card composer">
                   <h2>Request Composer</h2>
@@ -502,6 +532,7 @@ function ControlPanel({ stats, schemaText, addToast }: { stats: StatsResponse; s
   const [history, setHistory] = useState<MutationHistoryEntry[]>([])
   const [requests, setRequests] = useState<RequestSnapshot[]>([])
   const [exportText, setExportText] = useState('')
+  const [projectText, setProjectText] = useState('')
   const [diff, setDiff] = useState('')
 
   const schema = useMemo(() => {
@@ -577,6 +608,36 @@ function ControlPanel({ stats, schemaText, addToast }: { stats: StatsResponse; s
     addToast('info', 'Export copied', 'Ready for your project')
   }
 
+  async function exportProject() {
+    const bundle = await fetch('/api/_project').then((response) => response.json())
+    const text = JSON.stringify(bundle, null, 2)
+    setProjectText(text)
+    await navigator.clipboard.writeText(text)
+    addToast('info', 'Project exported', 'Config copied and shown below')
+  }
+
+  async function importProject() {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(projectText)
+    } catch (error) {
+      addToast('error', 'Invalid project JSON', error instanceof Error ? error.message : 'Could not parse project config')
+      return
+    }
+    const response = await fetch('/api/_project/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(parsed),
+    })
+    const data = await response.json()
+    if (!response.ok) {
+      addToast('error', 'Import failed', data.detail ?? data.error ?? 'Project config was rejected')
+      return
+    }
+    await loadControlData()
+    addToast('success', 'Project imported', `${Object.keys(data.schema ?? {}).length} models restored`)
+  }
+
   function compareEditorToServer() {
     const fieldSummary = Object.entries(schema).map(([model, fields]) => `${model}: ${Object.keys(fields).join(', ')}`).join('\n')
     setDiff(fieldSummary || 'No valid schema in editor')
@@ -623,6 +684,15 @@ function ControlPanel({ stats, schemaText, addToast }: { stats: StatsResponse; s
             <button className="ghost-button" type="button" disabled={!exportText} onClick={copyExport}>Copy</button>
           </div>
           <pre className="export-box">{exportText || 'Choose an export to preview it here.'}</pre>
+        </article>
+
+        <article className="tool-panel wide">
+          <h2>Project Config</h2>
+          <div className="chip-row">
+            <button className="ghost-button" type="button" onClick={exportProject}>Export Project</button>
+            <button className="btn-reload" type="button" onClick={importProject}>Import Project</button>
+          </div>
+          <textarea className="project-config-box" value={projectText} onChange={(event) => setProjectText(event.target.value)} placeholder="Paste a MockForge project config JSON bundle here." spellCheck={false} />
         </article>
 
         <article className="tool-panel">

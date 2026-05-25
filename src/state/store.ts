@@ -10,6 +10,12 @@ class Store {
     this.current = structuredClone(seed);
   }
 
+  importState(current: SeededStore, baseline?: SeededStore, snapshots?: Record<string, SeededStore>): void {
+    this.current = structuredClone(current);
+    this.baseline = structuredClone(baseline ?? current);
+    this.snapshots = new Map(Object.entries(snapshots ?? {}).map(([name, value]) => [name, structuredClone(value)]));
+  }
+
   reset(): Record<string, number> {
     this.current = structuredClone(this.baseline);
     return this.counts();
@@ -51,6 +57,14 @@ class Store {
 
   listSnapshots(): Array<{ name: string; models: Record<string, number> }> {
     return Array.from(this.snapshots.keys()).map((name) => ({ name, models: this.snapshotSummary(name) }));
+  }
+
+  exportSnapshots(): Record<string, SeededStore> {
+    return Object.fromEntries(Array.from(this.snapshots.entries()).map(([name, value]) => [name, structuredClone(value)]));
+  }
+
+  exportBaseline(): SeededStore {
+    return structuredClone(this.baseline);
   }
 
   snapshotSummary(name: string): Record<string, number> {

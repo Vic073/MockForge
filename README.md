@@ -150,6 +150,8 @@ GET /api/users/:id/posts
 | `GET` | `/api/_stats` | Model counts, request count, uptime, and port |
 | `GET` | `/api/_routes` | Active route definitions |
 | `GET` | `/api/_schema` | Current parsed schema |
+| `GET` | `/api/_project` | Export schema, data, snapshots, and runtime settings |
+| `POST` | `/api/_project/import` | Import a full project config bundle |
 | `POST` | `/api/_schema/reload` | Reload schema at runtime |
 | `POST` | `/api/reset` | Reset all models to baseline seed data |
 | `POST` | `/api/reset/:model` | Reset one model |

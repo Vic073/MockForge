@@ -42,6 +42,17 @@ let seedCount = 10;
 let boundPort = 5000;
 let startedAt = Date.now();
 
+interface ProjectBundle {
+  version: 1;
+  exportedAt: string;
+  schema: ParsedSchema;
+  seedCount: number;
+  runtimeConfig: typeof runtimeConfig;
+  data: SeededStore;
+  baseline: SeededStore;
+  snapshots: Record<string, SeededStore>;
+}
+
 function readJsonFile(filePath: string): unknown {
   return JSON.parse(fs.readFileSync(path.resolve(filePath), 'utf8'));
 }
@@ -59,6 +70,53 @@ function applySchema(schema: ParsedSchema, fixtures?: SeededStore): void {
   currentSchema = schema;
   const generated = seedSchema(schema, seedCount);
   store.init({ ...generated, ...fixtures });
+}
+
+function exportProjectBundle(): ProjectBundle {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    schema: currentSchema,
+    seedCount,
+    runtimeConfig,
+    data: store.all(),
+    baseline: store.exportBaseline(),
+    snapshots: store.exportSnapshots(),
+  };
+}
+
+function normalizeProjectSchema(input: unknown): ParsedSchema {
+  const parsed = parseJsonSchemaValue(
+    Object.fromEntries(Object.entries(input as Record<string, Record<string, unknown>>).map(([model, fields]) => [
+      model,
+      Object.fromEntries(Object.entries(fields ?? {}).map(([fieldName, field]) => [
+        fieldName,
+        typeof field === 'string' ? field : (field as { type?: unknown })?.type ?? 'string',
+      ])),
+    ])),
+  );
+  return parsed;
+}
+
+function importProjectBundle(input: unknown): ProjectBundle {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Project config must be a JSON object.');
+  }
+  const bundle = input as Partial<ProjectBundle>;
+  if (!bundle.schema) {
+    throw new Error('Project config is missing "schema".');
+  }
+
+  currentSchema = normalizeProjectSchema(bundle.schema);
+  seedCount = typeof bundle.seedCount === 'number' ? Math.max(1, bundle.seedCount) : seedCount;
+  if (bundle.runtimeConfig) updateRuntimeConfig(bundle.runtimeConfig);
+
+  const generated = seedSchema(currentSchema, seedCount);
+  const data = bundle.data && typeof bundle.data === 'object' ? bundle.data : generated;
+  const baseline = bundle.baseline && typeof bundle.baseline === 'object' ? bundle.baseline : data;
+  const snapshots = bundle.snapshots && typeof bundle.snapshots === 'object' ? bundle.snapshots : {};
+  store.importState(data, baseline, snapshots);
+  return exportProjectBundle();
 }
 
 function diffSchemas(before: ParsedSchema | undefined, after: ParsedSchema): unknown {
@@ -167,6 +225,14 @@ export async function startServer(schemaPath = 'schema.json', options: ServerOpt
     });
   });
   app.get('/api/_schema', (_req, res) => res.json(currentSchema));
+  app.get('/api/_project', (_req, res) => res.json(exportProjectBundle()));
+  app.post('/api/_project/import', (req, res) => {
+    try {
+      res.json(importProjectBundle(req.body));
+    } catch (error) {
+      res.status(400).json({ error: 'Invalid project config', detail: error instanceof Error ? error.message : String(error) });
+    }
+  });
   app.post('/api/_schema/reload', (req, res) => {
     try {
       const previous = currentSchema;
